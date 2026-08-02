@@ -9,7 +9,7 @@
   <packaging>pom</packaging>
   <name>OC2 Sample Capabilities</name>
   <modules>
-    <module>hr-policy</module>
+    <module>it-support-guide</module>
     <module>travel-consultant</module>
     <module>university-advisor</module>
   </modules>
