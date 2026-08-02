@@ -8,7 +8,7 @@ Each module is standalone and produces exactly one selected JAR for one capabili
 
 | Module | Pack ID | Selected JAR |
 | --- | --- | --- |
-| `hr-policy` | `oc2.hr-policy` | `oc2-hr-policy-pack-1.0.0.jar` |
+| `it-support-guide` | `oc2.it-support-guide` | `oc2-it-support-guide-pack-1.0.0.jar` |
 | `travel-consultant` | `oc2.travel-consultant` | `oc2-travel-consultant-pack-1.0.0.jar` |
 | `university-advisor` | `oc2.university-advisor` | `oc2-university-advisor-pack-1.0.0.jar` |
 
