@@ -12,5 +12,8 @@
     <module>it-support-guide</module>
     <module>travel-consultant</module>
     <module>university-advisor</module>
+    <module>aq-health-assistant</module>
+    <module>alex-coverage-advisor</module>
+    <module>ebc-benefits-advisor</module>
   </modules>
 </project>
