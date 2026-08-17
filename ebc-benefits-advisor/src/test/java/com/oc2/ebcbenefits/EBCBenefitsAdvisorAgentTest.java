@@ -113,11 +113,11 @@ class EBCBenefitsAdvisorAgentTest {
     assertFalse(response.getMetadata().containsKey("oc2.summary"));
   }
 
-  @Test void returns_a_bounded_failure_message_when_the_model_output_is_not_json() {
+  @Test void preserves_plain_text_as_an_unfinished_reply() {
     Msg response = new EBCBenefitsAdvisorAgent(new RecordingModel("请提供员工编号后再查询。"))
         .call(List.of(user("福利"))).block();
 
-    assertEquals("I couldn't generate benefits guidance just now. Please try again.", response.getTextContent());
+    assertEquals("请提供员工编号后再查询。", response.getTextContent());
     assertTrue(response.getMetadata().isEmpty());
   }
 

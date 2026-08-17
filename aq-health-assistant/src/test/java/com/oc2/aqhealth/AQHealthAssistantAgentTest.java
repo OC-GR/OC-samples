@@ -104,11 +104,11 @@ class AQHealthAssistantAgentTest {
     assertFalse(response.getMetadata().containsKey("oc2.summary"));
   }
 
-  @Test void returns_a_bounded_failure_message_when_the_model_output_is_not_json() {
+  @Test void preserves_plain_text_as_an_unfinished_reply() {
     Msg response = new AQHealthAssistantAgent(new RecordingModel("我需要更多症状信息。"))
         .call(List.of(user("不舒服"))).block();
 
-    assertEquals("I couldn't generate health guidance just now. Please try again.", response.getTextContent());
+    assertEquals("我需要更多症状信息。", response.getTextContent());
     assertTrue(response.getMetadata().isEmpty());
   }
 

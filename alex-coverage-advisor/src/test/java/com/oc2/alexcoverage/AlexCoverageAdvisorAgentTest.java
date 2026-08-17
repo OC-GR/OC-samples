@@ -103,11 +103,11 @@ class AlexCoverageAdvisorAgentTest {
     assertFalse(response.getMetadata().containsKey("oc2.summary"));
   }
 
-  @Test void returns_a_bounded_failure_message_when_the_model_output_is_not_json() {
+  @Test void preserves_plain_text_as_an_unfinished_reply() {
     Msg response = new AlexCoverageAdvisorAgent(new RecordingModel("这需要看具体保单条款。"))
         .call(List.of(user("理赔"))).block();
 
-    assertEquals("I couldn't generate coverage guidance just now. Please try again.", response.getTextContent());
+    assertEquals("这需要看具体保单条款。", response.getTextContent());
     assertTrue(response.getMetadata().isEmpty());
   }
 

@@ -109,24 +109,31 @@ public final class AlexCoverageAdvisorAgent implements Agent {
     return List.copyOf(input);
   }
 
-  /** Returns null for blank or malformed model output so the caller emits the safe failure reply. */
+  /** Parses structured completion or preserves non-empty model text as an unfinished reply. */
   private static Output parseOutput(String text) {
     if (text == null || text.isBlank()) return null;
+    String candidate = text.trim();
     try {
-      JsonNode root = JSON.readTree(text.trim());
-      if (root == null || !root.isObject()) return null;
-      JsonNode reply = root.get("reply");
-      JsonNode done = root.get("done");
-      JsonNode summary = root.get("summary");
-      if (reply == null || !reply.isTextual() || reply.asText().isBlank()) return null;
-      if (done == null || !done.isBoolean()) return null;
-      if (summary == null || !summary.isObject()) return null;
-      if (!contractSummary(summary, done.asBoolean())) return null;
-      return new Output(reply.asText().trim(), done.asBoolean(),
-          JSON.convertValue(summary, new TypeReference<Map<String, Object>>() {}));
-    } catch (JsonProcessingException exception) {
-      return null;
+      JsonNode root = JSON.readTree(candidate);
+      if (root != null && root.isObject()) {
+        return parseStructuredOutput(root);
+      }
+      return new Output(candidate, false, Map.of());
+    } catch (JsonProcessingException ignored) {
+      // Preserve ordinary model text below; it cannot complete the step.
+      return new Output(candidate, false, Map.of());
     }
+  }
+
+  private static Output parseStructuredOutput(JsonNode root) {
+    JsonNode reply = root.get("reply");
+    JsonNode done = root.get("done");
+    JsonNode summary = root.get("summary");
+    if (reply == null || !reply.isTextual() || reply.asText().isBlank()
+        || done == null || !done.isBoolean() || summary == null || !summary.isObject()
+        || !contractSummary(summary, done.asBoolean())) return null;
+    return new Output(reply.asText().trim(), done.asBoolean(),
+        JSON.convertValue(summary, new TypeReference<Map<String, Object>>() {}));
   }
 
   private static Msg responseMessage(Output output) {
