@@ -17,49 +17,81 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
 
 class AlexCoverageAdvisorAgentTest {
-  private static final String UNFINISHED = """
+  private static final String UNFINISHED_EMPTY_SUMMARY = """
       {"reply": "请告诉我这份保单是医疗、意外还是重疾险，我好对照条款说明。",
        "done": false,
-       "summary": {"topic": "理赔条件", "coverage_summary": "等待用户补充险种信息", "open_items": ["险种"]}}
+       "summary": {}}
+      """;
+  private static final String UNFINISHED_PARTIAL_SUMMARY = """
+      {"reply": "请告诉我这次就诊的城市和医院，我好说明覆盖情况。",
+       "done": false,
+       "summary": {"city": "待确认", "visit_type": "待确认", "boundary": "尚未给出覆盖结论"}}
       """;
   private static final String FINISHED = """
-      {"reply": "理赔取决于保单条款、治疗类别与生效日期，这不是最终理赔结论。",
+      {"reply": "门诊理赔取决于保单条款、治疗类别与生效日期，这不是最终理赔结论。",
        "done": true,
-       "summary": {"topic": "理赔条件", "coverage_summary": "已说明理赔取决于条款、治疗类别与生效日期",
-                   "open_items": []}}
+       "summary": {"city": "上海", "facility": "三甲医院", "visit_type": "门诊",
+                   "coverage_assessment": "按保单条款可能覆盖",
+                   "coverage_conditions": "以生效日期和条款约定为准",
+                   "source": "已批准产品材料", "boundary": "本步骤不作销售建议、核保决定或最终理赔决定"}}
       """;
 
   @Test void delegates_the_reply_to_the_host_model_with_a_coverage_system_prompt() {
     RecordingModel model = new RecordingModel(FINISHED);
     Msg response = new AlexCoverageAdvisorAgent(model).call(List.of(user("能理赔吗"))).block();
 
-    assertEquals("理赔取决于保单条款、治疗类别与生效日期，这不是最终理赔结论。", response.getTextContent());
+    assertEquals("门诊理赔取决于保单条款、治疗类别与生效日期，这不是最终理赔结论。", response.getTextContent());
     assertEquals(List.of(MsgRole.SYSTEM, MsgRole.USER), model.messages.stream().map(Msg::getRole).toList());
-    assertTrue(model.messages.getFirst().getTextContent().contains("Personal insurance"));
-    assertTrue(model.messages.getFirst().getTextContent().contains("medical insurance"));
-    assertTrue(model.messages.getFirst().getTextContent().contains("final claim decision"));
-    assertTrue(model.messages.getFirst().getTextContent().contains("no-answer"));
-    assertTrue(model.messages.getFirst().getTextContent().contains("strict JSON"));
+    String system = model.messages.getFirst().getTextContent();
+    assertTrue(system.contains("Personal insurance"));
+    assertTrue(system.contains("medical insurance"));
+    assertTrue(system.contains("final claim decision"));
+    assertTrue(system.contains("no-answer"));
+    assertTrue(system.contains("strict JSON"));
+    // The Host-registered recipient contract fields must be spelled out exactly in the instructions.
+    assertTrue(system.contains("city"));
+    assertTrue(system.contains("facility"));
+    assertTrue(system.contains("visit_type"));
+    assertTrue(system.contains("coverage_assessment"));
+    assertTrue(system.contains("coverage_conditions"));
+    assertTrue(system.contains("source"));
+    assertTrue(system.contains("boundary"));
   }
 
-  @Test void keeps_the_step_open_without_a_lifecycle_proposal_when_done_is_false() {
-    Msg response = new AlexCoverageAdvisorAgent(new RecordingModel(UNFINISHED)).call(List.of(user("理赔"))).block();
+  @Test void keeps_the_step_open_without_presenting_an_empty_summary_when_done_is_false() {
+    Msg response = new AlexCoverageAdvisorAgent(new RecordingModel(UNFINISHED_EMPTY_SUMMARY))
+        .call(List.of(user("理赔"))).block();
 
     assertEquals("请告诉我这份保单是医疗、意外还是重疾险，我好对照条款说明。", response.getTextContent());
-    assertEquals(1, response.getMetadata().size());
-    assertEquals(Map.of("summary", Map.of("topic", "理赔条件", "coverage_summary", "等待用户补充险种信息", "open_items", List.of("险种"))),
-        response.getMetadata().get("oc2.turn_proposal"));
+    // An empty summary must never be carried in the turn proposal: the Host bridge would reject an
+    // empty summary object as an invalid proposal and fail the round instead of keeping it open.
+    assertTrue(response.getMetadata().isEmpty());
+    assertFalse(response.getMetadata().containsKey("oc2.turn_proposal"));
     assertFalse(response.getMetadata().containsKey("oc2.lifecycle_proposal"));
-    assertFalse(response.getMetadata().containsKey("oc2.summary"));
   }
 
-  @Test void declares_completion_and_attaches_the_private_summary_when_done_is_true() {
+  @Test void keeps_the_step_open_and_attaches_a_contract_summary_without_lifecycle_when_done_is_false() {
+    Msg response = new AlexCoverageAdvisorAgent(new RecordingModel(UNFINISHED_PARTIAL_SUMMARY))
+        .call(List.of(user("理赔"))).block();
+
+    assertEquals("请告诉我这次就诊的城市和医院，我好说明覆盖情况。", response.getTextContent());
+    assertEquals(1, response.getMetadata().size());
+    assertEquals(Map.of("summary", Map.of("city", "待确认", "visit_type", "待确认",
+            "boundary", "尚未给出覆盖结论")),
+        response.getMetadata().get("oc2.turn_proposal"));
+    assertFalse(response.getMetadata().containsKey("oc2.lifecycle_proposal"));
+  }
+
+  @Test void declares_completion_and_attaches_the_exact_contract_summary_when_done_is_true() {
     Msg response = new AlexCoverageAdvisorAgent(new RecordingModel(FINISHED)).call(List.of(user("理赔"))).block();
 
     assertTrue(response.getTextContent().contains("理赔"));
     assertEquals(1, response.getMetadata().size());
     assertEquals(Map.of("lifecycle", "COMPLETED",
-            "summary", Map.of("topic", "理赔条件", "coverage_summary", "已说明理赔取决于条款、治疗类别与生效日期", "open_items", List.of())),
+            "summary", Map.of("city", "上海", "facility", "三甲医院", "visit_type", "门诊",
+                "coverage_assessment", "按保单条款可能覆盖",
+                "coverage_conditions", "以生效日期和条款约定为准",
+                "source", "已批准产品材料", "boundary", "本步骤不作销售建议、核保决定或最终理赔决定")),
         response.getMetadata().get("oc2.turn_proposal"));
     assertFalse(response.getMetadata().containsKey("oc2.lifecycle_proposal"));
     assertFalse(response.getMetadata().containsKey("oc2.summary"));
@@ -76,6 +108,39 @@ class AlexCoverageAdvisorAgentTest {
   @Test void returns_a_bounded_failure_message_when_the_json_is_missing_required_fields() {
     Msg response = new AlexCoverageAdvisorAgent(new RecordingModel("{\"done\": false}"))
         .call(List.of(user("理赔"))).block();
+
+    assertEquals("I couldn't generate coverage guidance just now. Please try again.", response.getTextContent());
+    assertTrue(response.getMetadata().isEmpty());
+  }
+
+  @Test void returns_a_bounded_failure_message_when_done_true_summary_misses_contract_fields() {
+    Msg response = new AlexCoverageAdvisorAgent(new RecordingModel("""
+        {"reply": "可以结束了", "done": true, "summary": {"city": "上海"}}
+        """)).call(List.of(user("理赔"))).block();
+
+    assertEquals("I couldn't generate coverage guidance just now. Please try again.", response.getTextContent());
+    assertTrue(response.getMetadata().isEmpty());
+  }
+
+  @Test void returns_a_bounded_failure_message_when_done_true_summary_has_an_unknown_field() {
+    Msg response = new AlexCoverageAdvisorAgent(new RecordingModel("""
+        {"reply": "可以结束了", "done": true,
+         "summary": {"city": "上海", "facility": "三甲医院", "visit_type": "门诊",
+                     "coverage_assessment": "可能覆盖", "coverage_conditions": "以条款为准",
+                     "topic": "理赔", "boundary": "非最终理赔决定"}}
+        """)).call(List.of(user("理赔"))).block();
+
+    assertEquals("I couldn't generate coverage guidance just now. Please try again.", response.getTextContent());
+    assertTrue(response.getMetadata().isEmpty());
+  }
+
+  @Test void returns_a_bounded_failure_message_when_done_true_summary_has_a_mistyped_field() {
+    Msg response = new AlexCoverageAdvisorAgent(new RecordingModel("""
+        {"reply": "可以结束了", "done": true,
+         "summary": {"city": 123, "facility": "三甲医院", "visit_type": "门诊",
+                     "coverage_assessment": "可能覆盖", "coverage_conditions": "以条款为准",
+                     "source": "已批准产品材料", "boundary": "非最终理赔决定"}}
+        """)).call(List.of(user("理赔"))).block();
 
     assertEquals("I couldn't generate coverage guidance just now. Please try again.", response.getTextContent());
     assertTrue(response.getMetadata().isEmpty());

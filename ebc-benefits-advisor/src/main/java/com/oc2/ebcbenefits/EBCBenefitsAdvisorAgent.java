@@ -15,10 +15,12 @@ import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.model.Model;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Predicate;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -43,10 +45,21 @@ public final class EBCBenefitsAdvisorAgent implements Agent {
         limits, remaining balances, validity periods, and rule sources have been reported and you can
         conclude with the summary. Otherwise done=false while identity or consent is missing or more
         information is needed.
-      - summary: a JSON object ({} is allowed) with the benefits lookup result for the next step,
-        e.g. {"eligibility": "...", "coverage_scope": "...", "annual_limit": "...",
-        "remaining_balance": "...", "validity": "...", "rule_source": "..."}. Never include a final
-        claim or entitlement decision.
+      - summary: a JSON object with the benefits lookup result for the next step. When done=true it
+        MUST contain exactly these nine required fields and no other fields:
+        {"direct_pay_available": true|false, "direct_pay_scope": "...",
+        "reimbursement_required_for": "...", "remaining_balance": 1234.5, "currency": "...",
+        "submission_deadline_days": 90, "required_materials": ["..."], "source": "...",
+        "boundary": "..."}. direct_pay_available is boolean: whether the service can be direct-paid
+        under the group plan; direct_pay_scope is text describing what direct pay covers;
+        reimbursement_required_for is text describing what must instead be claimed as
+        reimbursement; remaining_balance is a number (the remaining annual balance); currency is
+        text (the ISO currency code); submission_deadline_days is a number (days within which
+        claims must be submitted); required_materials is a JSON array of text items (the materials
+        needed for a claim); source is text (the rules source); boundary is text stating what this
+        step does not decide (no final claim or entitlement decision). When done=false the summary
+        may be {} while identity or consent is missing or more information is needed. Never include
+        a final claim or entitlement decision in any field.
       """;
   private static final String FAILURE = "I couldn't generate benefits guidance just now. Please try again.";
   /** Host Native bridge envelope key; the proposal map allows only "lifecycle" and "summary". */
@@ -114,6 +127,7 @@ public final class EBCBenefitsAdvisorAgent implements Agent {
       if (reply == null || !reply.isTextual() || reply.asText().isBlank()) return null;
       if (done == null || !done.isBoolean()) return null;
       if (summary == null || !summary.isObject()) return null;
+      if (!contractSummary(summary, done.asBoolean())) return null;
       return new Output(reply.asText().trim(), done.asBoolean(),
           JSON.convertValue(summary, new TypeReference<Map<String, Object>>() {}));
     } catch (JsonProcessingException exception) {
@@ -123,12 +137,54 @@ public final class EBCBenefitsAdvisorAgent implements Agent {
 
   private static Msg responseMessage(Output output) {
     Map<String, Object> proposal = new HashMap<>();
-    proposal.put(PROPOSAL_SUMMARY_KEY, output.summary());
+    if (!output.summary().isEmpty()) proposal.put(PROPOSAL_SUMMARY_KEY, output.summary());
     if (output.done()) proposal.put(PROPOSAL_LIFECYCLE_KEY, COMPLETED);
+    if (proposal.isEmpty()) {
+      // done=false with an empty summary: keep the step open with the visible reply only; an empty
+      // summary must never be presented to the Host bridge as a completion proposal.
+      return Msg.builder().role(MsgRole.ASSISTANT).textContent(output.reply())
+          .generateReason(GenerateReason.MODEL_STOP).metadata(Map.of()).build();
+    }
     return Msg.builder().role(MsgRole.ASSISTANT).textContent(output.reply())
         .generateReason(GenerateReason.MODEL_STOP)
         .metadata(Map.of(TURN_PROPOSAL_METADATA_KEY, proposal)).build();
   }
+
+  /**
+   * Host-registered recipient contract for this step's typed summary: exactly direct_pay_available
+   * (BOOLEAN), direct_pay_scope (TEXT), reimbursement_required_for (TEXT), remaining_balance
+   * (NUMBER), currency (TEXT), submission_deadline_days (NUMBER), required_materials (JSON array),
+   * source (TEXT), boundary (TEXT). done=true requires all nine fields with contract types and no
+   * extra fields; done=false allows {} or any subset of the contract fields with contract types.
+   */
+  private static boolean contractSummary(JsonNode summary, boolean done) {
+    ContractField[] fields = {
+        new ContractField("direct_pay_available", JsonNode::isBoolean),
+        new ContractField("direct_pay_scope", JsonNode::isTextual),
+        new ContractField("reimbursement_required_for", JsonNode::isTextual),
+        new ContractField("remaining_balance", JsonNode::isNumber),
+        new ContractField("currency", JsonNode::isTextual),
+        new ContractField("submission_deadline_days", JsonNode::isNumber),
+        new ContractField("required_materials", JsonNode::isArray),
+        new ContractField("source", JsonNode::isTextual),
+        new ContractField("boundary", JsonNode::isTextual)};
+    if (done) {
+      if (summary.size() != fields.length) return false;
+    } else if (summary.isEmpty()) {
+      return true;
+    }
+    Map<String, Predicate<JsonNode>> byName = new HashMap<>();
+    for (ContractField field : fields) byName.put(field.name(), field.type());
+    for (Iterator<Map.Entry<String, JsonNode>> it = summary.fields(); it.hasNext(); ) {
+      Map.Entry<String, JsonNode> entry = it.next();
+      Predicate<JsonNode> type = byName.get(entry.getKey());
+      JsonNode value = entry.getValue();
+      if (type == null || value == null || value.isNull() || !type.test(value)) return false;
+    }
+    return true;
+  }
+
+  private record ContractField(String name, Predicate<JsonNode> type) { }
 
   private static Msg message(String text, GenerateReason reason) {
     return Msg.builder().role(MsgRole.ASSISTANT).textContent(text).generateReason(reason).metadata(Map.of()).build();

@@ -17,52 +17,90 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
 
 class EBCBenefitsAdvisorAgentTest {
-  private static final String UNFINISHED = """
+  private static final String UNFINISHED_EMPTY_SUMMARY = """
       {"reply": "需要先确认你的员工身份与授权，我才能查询你的福利信息。",
        "done": false,
-       "summary": {"eligibility": "待确认", "coverage_scope": "", "rule_source": ""}}
+       "summary": {}}
+      """;
+  private static final String UNFINISHED_PARTIAL_SUMMARY = """
+      {"reply": "身份确认后即可查询福利与余额信息。",
+       "done": false,
+       "summary": {"source": "当前员工福利计划文件", "boundary": "身份或授权确认后才可查询"}}
       """;
   private static final String FINISHED = """
-      {"reply": "常见福利包括门诊、住院与补充健康项目，具体以当前计划文件为准。",
+      {"reply": "已查询到：门诊可直付、余额 3500 MYR、特需需报销，具体以当前计划文件为准。",
        "done": true,
-       "summary": {"eligibility": "在职员工", "coverage_scope": "门诊、住院、补充健康",
-                   "annual_limit": "以计划文件为准", "remaining_balance": "以计划文件为准",
-                   "validity": "本年度", "rule_source": "当前员工福利计划文件"}}
+       "summary": {"direct_pay_available": true, "direct_pay_scope": "门诊和常规住院",
+                   "reimbursement_required_for": "特需和自费项目",
+                   "remaining_balance": 3500, "currency": "MYR",
+                   "submission_deadline_days": 90,
+                   "required_materials": ["发票", "处方"],
+                   "source": "当前员工福利计划文件",
+                   "boundary": "本步骤不作最终理赔或权益决定"}}
       """;
 
   @Test void delegates_the_reply_to_the_host_model_with_a_benefits_system_prompt() {
     RecordingModel model = new RecordingModel(FINISHED);
     Msg response = new EBCBenefitsAdvisorAgent(model).call(List.of(user("福利有哪些"))).block();
 
-    assertEquals("常见福利包括门诊、住院与补充健康项目，具体以当前计划文件为准。", response.getTextContent());
+    assertEquals("已查询到：门诊可直付、余额 3500 MYR、特需需报销，具体以当前计划文件为准。", response.getTextContent());
     assertEquals(List.of(MsgRole.SYSTEM, MsgRole.USER), model.messages.stream().map(Msg::getRole).toList());
-    assertTrue(model.messages.getFirst().getTextContent().contains("group insurance"));
-    assertTrue(model.messages.getFirst().getTextContent().contains("group insurance for employees"));
-    assertTrue(model.messages.getFirst().getTextContent().contains("consented"));
-    assertTrue(model.messages.getFirst().getTextContent().contains("remaining balances"));
-    assertTrue(model.messages.getFirst().getTextContent().contains("strict JSON"));
+    String system = model.messages.getFirst().getTextContent();
+    assertTrue(system.contains("group insurance"));
+    assertTrue(system.contains("group insurance for employees"));
+    assertTrue(system.contains("consented"));
+    assertTrue(system.contains("remaining balances"));
+    assertTrue(system.contains("strict JSON"));
+    // The Host-registered recipient contract fields must be spelled out exactly in the instructions.
+    assertTrue(system.contains("direct_pay_available"));
+    assertTrue(system.contains("direct_pay_scope"));
+    assertTrue(system.contains("reimbursement_required_for"));
+    assertTrue(system.contains("remaining_balance"));
+    assertTrue(system.contains("currency"));
+    assertTrue(system.contains("submission_deadline_days"));
+    assertTrue(system.contains("required_materials"));
+    assertTrue(system.contains("source"));
+    assertTrue(system.contains("boundary"));
   }
 
-  @Test void keeps_the_step_open_without_a_lifecycle_proposal_when_done_is_false() {
-    Msg response = new EBCBenefitsAdvisorAgent(new RecordingModel(UNFINISHED)).call(List.of(user("福利"))).block();
+  @Test void keeps_the_step_open_without_presenting_an_empty_summary_when_done_is_false() {
+    Msg response = new EBCBenefitsAdvisorAgent(new RecordingModel(UNFINISHED_EMPTY_SUMMARY))
+        .call(List.of(user("福利"))).block();
 
     assertEquals("需要先确认你的员工身份与授权，我才能查询你的福利信息。", response.getTextContent());
-    assertEquals(1, response.getMetadata().size());
-    assertEquals(Map.of("summary", Map.of("eligibility", "待确认", "coverage_scope", "", "rule_source", "")),
-        response.getMetadata().get("oc2.turn_proposal"));
+    // An empty summary must never be carried in the turn proposal: the Host bridge would reject an
+    // empty summary object as an invalid proposal and fail the round instead of keeping it open.
+    assertTrue(response.getMetadata().isEmpty());
+    assertFalse(response.getMetadata().containsKey("oc2.turn_proposal"));
     assertFalse(response.getMetadata().containsKey("oc2.lifecycle_proposal"));
-    assertFalse(response.getMetadata().containsKey("oc2.summary"));
   }
 
-  @Test void declares_completion_and_attaches_the_private_summary_when_done_is_true() {
+  @Test void keeps_the_step_open_and_attaches_a_contract_summary_without_lifecycle_when_done_is_false() {
+    Msg response = new EBCBenefitsAdvisorAgent(new RecordingModel(UNFINISHED_PARTIAL_SUMMARY))
+        .call(List.of(user("福利"))).block();
+
+    assertEquals("身份确认后即可查询福利与余额信息。", response.getTextContent());
+    assertEquals(1, response.getMetadata().size());
+    assertEquals(Map.of("summary", Map.of("source", "当前员工福利计划文件",
+            "boundary", "身份或授权确认后才可查询")),
+        response.getMetadata().get("oc2.turn_proposal"));
+    assertFalse(response.getMetadata().containsKey("oc2.lifecycle_proposal"));
+  }
+
+  @Test void declares_completion_and_attaches_the_exact_contract_summary_when_done_is_true() {
     Msg response = new EBCBenefitsAdvisorAgent(new RecordingModel(FINISHED)).call(List.of(user("福利"))).block();
 
-    assertTrue(response.getTextContent().contains("门诊"));
+    assertTrue(response.getTextContent().contains("直付"));
     assertEquals(1, response.getMetadata().size());
     assertEquals(Map.of("lifecycle", "COMPLETED",
-            "summary", Map.of("eligibility", "在职员工", "coverage_scope", "门诊、住院、补充健康",
-                "annual_limit", "以计划文件为准", "remaining_balance", "以计划文件为准",
-                "validity", "本年度", "rule_source", "当前员工福利计划文件")),
+            "summary", Map.of("direct_pay_available", true,
+                "direct_pay_scope", "门诊和常规住院",
+                "reimbursement_required_for", "特需和自费项目",
+                "remaining_balance", 3500, "currency", "MYR",
+                "submission_deadline_days", 90,
+                "required_materials", List.of("发票", "处方"),
+                "source", "当前员工福利计划文件",
+                "boundary", "本步骤不作最终理赔或权益决定")),
         response.getMetadata().get("oc2.turn_proposal"));
     assertFalse(response.getMetadata().containsKey("oc2.lifecycle_proposal"));
     assertFalse(response.getMetadata().containsKey("oc2.summary"));
@@ -79,6 +117,57 @@ class EBCBenefitsAdvisorAgentTest {
   @Test void returns_a_bounded_failure_message_when_the_json_is_missing_required_fields() {
     Msg response = new EBCBenefitsAdvisorAgent(new RecordingModel("{\"summary\": {}}"))
         .call(List.of(user("福利"))).block();
+
+    assertEquals("I couldn't generate benefits guidance just now. Please try again.", response.getTextContent());
+    assertTrue(response.getMetadata().isEmpty());
+  }
+
+  @Test void returns_a_bounded_failure_message_when_done_true_summary_misses_contract_fields() {
+    Msg response = new EBCBenefitsAdvisorAgent(new RecordingModel("""
+        {"reply": "查完了", "done": true, "summary": {"direct_pay_available": true}}
+        """)).call(List.of(user("福利"))).block();
+
+    assertEquals("I couldn't generate benefits guidance just now. Please try again.", response.getTextContent());
+    assertTrue(response.getMetadata().isEmpty());
+  }
+
+  @Test void returns_a_bounded_failure_message_when_done_true_summary_has_an_unknown_field() {
+    Msg response = new EBCBenefitsAdvisorAgent(new RecordingModel("""
+        {"reply": "查完了", "done": true,
+         "summary": {"direct_pay_available": true, "direct_pay_scope": "门诊",
+                     "reimbursement_required_for": "特需", "remaining_balance": 3500,
+                     "currency": "MYR", "submission_deadline_days": 90,
+                     "required_materials": ["发票"], "annual_limit": "以计划文件为准",
+                     "boundary": "非最终决定"}}
+        """)).call(List.of(user("福利"))).block();
+
+    assertEquals("I couldn't generate benefits guidance just now. Please try again.", response.getTextContent());
+    assertTrue(response.getMetadata().isEmpty());
+  }
+
+  @Test void returns_a_bounded_failure_message_when_done_true_summary_has_a_mistyped_field() {
+    Msg response = new EBCBenefitsAdvisorAgent(new RecordingModel("""
+        {"reply": "查完了", "done": true,
+         "summary": {"direct_pay_available": true, "direct_pay_scope": "门诊",
+                     "reimbursement_required_for": "特需", "remaining_balance": "3500",
+                     "currency": "MYR", "submission_deadline_days": 90,
+                     "required_materials": ["发票"], "source": "计划文件",
+                     "boundary": "非最终决定"}}
+        """)).call(List.of(user("福利"))).block();
+
+    assertEquals("I couldn't generate benefits guidance just now. Please try again.", response.getTextContent());
+    assertTrue(response.getMetadata().isEmpty());
+  }
+
+  @Test void returns_a_bounded_failure_message_when_done_true_required_materials_is_not_an_array() {
+    Msg response = new EBCBenefitsAdvisorAgent(new RecordingModel("""
+        {"reply": "查完了", "done": true,
+         "summary": {"direct_pay_available": true, "direct_pay_scope": "门诊",
+                     "reimbursement_required_for": "特需", "remaining_balance": 3500,
+                     "currency": "MYR", "submission_deadline_days": 90,
+                     "required_materials": "发票", "source": "计划文件",
+                     "boundary": "非最终决定"}}
+        """)).call(List.of(user("福利"))).block();
 
     assertEquals("I couldn't generate benefits guidance just now. Please try again.", response.getTextContent());
     assertTrue(response.getMetadata().isEmpty());
