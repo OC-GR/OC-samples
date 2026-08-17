@@ -1,5 +1,9 @@
 package com.oc2.alexcoverage;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.agentscope.core.agent.Agent;
 import io.agentscope.core.agent.Event;
 import io.agentscope.core.agent.EventType;
@@ -10,7 +14,10 @@ import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.model.Model;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -27,8 +34,25 @@ public final class AlexCoverageAdvisorAgent implements Agent {
       company's group insurance plan for the employee (that is the employee-benefits step). Never make
       a sales recommendation, underwriting decision, or final claim decision. Reply in the user's
       language, concisely, with plain text and no markdown headers.
+      Respond in strict JSON only, with no prose, code fences, or markdown outside the JSON, using
+      exactly this shape:
+      {"reply": "...", "done": true|false, "summary": {...}}
+      - reply: the visible message to the user — the coverage guidance, in the user's language,
+        concise, plain text, no markdown headers.
+      - done: true only when this coverage step is complete: the question is answered (including a
+        clear no-answer when the product information or authoritative source is missing) and you can
+        conclude with the summary. Otherwise done=false while you still need information.
+      - summary: a JSON object ({} is allowed) with the coverage topic and what was established for
+        the next step, e.g. {"topic": "...", "coverage_summary": "...", "open_items": [...]}. Never
+        record a sales recommendation, underwriting decision, or final claim decision.
       """;
   private static final String FAILURE = "I couldn't generate coverage guidance just now. Please try again.";
+  /** Host Native bridge envelope key; the proposal map allows only "lifecycle" and "summary". */
+  static final String TURN_PROPOSAL_METADATA_KEY = "oc2.turn_proposal";
+  private static final String PROPOSAL_LIFECYCLE_KEY = "lifecycle";
+  private static final String PROPOSAL_SUMMARY_KEY = "summary";
+  private static final String COMPLETED = "COMPLETED";
+  private static final ObjectMapper JSON = new ObjectMapper();
 
   private final Model model;
   private final AtomicBoolean interrupted = new AtomicBoolean();
@@ -54,7 +78,8 @@ public final class AlexCoverageAdvisorAgent implements Agent {
     if (interrupted.getAndSet(false)) return Mono.just(message("", GenerateReason.INTERRUPTED));
     if (model == null) return Mono.just(message(FAILURE, GenerateReason.MODEL_STOP));
     return generatedText(modelInput(messages))
-        .filter(AlexCoverageAdvisorAgent::usableText)
+        .map(AlexCoverageAdvisorAgent::parseOutput)
+        .filter(Objects::nonNull)
         .map(AlexCoverageAdvisorAgent::responseMessage)
         .switchIfEmpty(Mono.just(message(FAILURE, GenerateReason.MODEL_STOP)))
         .onErrorResume(error -> Mono.just(message(FAILURE, GenerateReason.MODEL_STOP)));
@@ -75,15 +100,37 @@ public final class AlexCoverageAdvisorAgent implements Agent {
     return List.copyOf(input);
   }
 
-  private static boolean usableText(String value) {
-    return value != null && !value.isBlank();
+  /** Returns null for blank or malformed model output so the caller emits the safe failure reply. */
+  private static Output parseOutput(String text) {
+    if (text == null || text.isBlank()) return null;
+    try {
+      JsonNode root = JSON.readTree(text.trim());
+      if (root == null || !root.isObject()) return null;
+      JsonNode reply = root.get("reply");
+      JsonNode done = root.get("done");
+      JsonNode summary = root.get("summary");
+      if (reply == null || !reply.isTextual() || reply.asText().isBlank()) return null;
+      if (done == null || !done.isBoolean()) return null;
+      if (summary == null || !summary.isObject()) return null;
+      return new Output(reply.asText().trim(), done.asBoolean(),
+          JSON.convertValue(summary, new TypeReference<Map<String, Object>>() {}));
+    } catch (JsonProcessingException exception) {
+      return null;
+    }
   }
 
-  private static Msg responseMessage(String text) {
-    return message(text.trim(), GenerateReason.MODEL_STOP);
+  private static Msg responseMessage(Output output) {
+    Map<String, Object> proposal = new HashMap<>();
+    proposal.put(PROPOSAL_SUMMARY_KEY, output.summary());
+    if (output.done()) proposal.put(PROPOSAL_LIFECYCLE_KEY, COMPLETED);
+    return Msg.builder().role(MsgRole.ASSISTANT).textContent(output.reply())
+        .generateReason(GenerateReason.MODEL_STOP)
+        .metadata(Map.of(TURN_PROPOSAL_METADATA_KEY, proposal)).build();
   }
 
   private static Msg message(String text, GenerateReason reason) {
-    return Msg.builder().role(MsgRole.ASSISTANT).textContent(text).generateReason(reason).build();
+    return Msg.builder().role(MsgRole.ASSISTANT).textContent(text).generateReason(reason).metadata(Map.of()).build();
   }
+
+  private record Output(String reply, boolean done, Map<String, Object> summary) { }
 }
