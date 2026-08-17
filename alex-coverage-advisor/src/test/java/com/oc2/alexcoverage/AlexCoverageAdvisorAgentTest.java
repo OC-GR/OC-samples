@@ -43,8 +43,8 @@ class AlexCoverageAdvisorAgentTest {
     assertEquals("门诊理赔取决于保单条款、治疗类别与生效日期，这不是最终理赔结论。", response.getTextContent());
     assertEquals(List.of(MsgRole.SYSTEM, MsgRole.USER), model.messages.stream().map(Msg::getRole).toList());
     String system = model.messages.getFirst().getTextContent();
-    assertTrue(system.contains("Personal insurance"));
-    assertTrue(system.contains("medical insurance"));
+    assertTrue(system.contains("personal-insurance coverage advisor"));
+    assertTrue(system.contains("individually purchased medical"));
     assertTrue(system.contains("final claim decision"));
     assertTrue(system.contains("no-answer"));
     assertTrue(system.contains("strict JSON"));
@@ -56,6 +56,12 @@ class AlexCoverageAdvisorAgentTest {
     assertTrue(system.contains("coverage_conditions"));
     assertTrue(system.contains("source"));
     assertTrue(system.contains("boundary"));
+    assertFalse(system.contains("benefit journey"));
+    assertFalse(system.contains("AQ Health Assistant"));
+    assertFalse(system.contains("EBC Benefits Advisor"));
+    assertFalse(system.contains("Main Bot"));
+    assertFalse(system.contains("next step"));
+    assertFalse(system.contains("handoff"));
   }
 
   @Test void keeps_the_step_open_without_presenting_an_empty_summary_when_done_is_false() {

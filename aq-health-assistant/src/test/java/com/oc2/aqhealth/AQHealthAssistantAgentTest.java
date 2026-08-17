@@ -55,31 +55,14 @@ class AQHealthAssistantAgentTest {
     assertTrue(system.contains("reported_red_flags"));
     assertTrue(system.contains("care_recommendation"));
     assertTrue(system.contains("boundary"));
-    // The health → coverage → employee benefits journey framing must be gone.
     assertFalse(system.contains("benefit journey"));
-    assertFalse(system.contains("health → coverage → employee benefits"));
-  }
-
-  @Test void bounds_the_prompt_to_health_triage_and_prohibits_off_scope_topics() {
-    RecordingModel model = new RecordingModel(FINISHED);
-    new AQHealthAssistantAgent(model).call(List.of(user("我不舒服"))).block();
-    String system = model.messages.getFirst().getTextContent();
-
-    // Off-scope topics are explicitly prohibited, never invited or framed as the next step.
-    assertTrue(system.contains("Never discuss insurance"));
-    assertTrue(system.contains("claims"));
-    assertTrue(system.contains("reimbursements"));
-    assertTrue(system.contains("benefits"));
-    assertTrue(system.contains("coverage"));
-    assertTrue(system.contains("other agents"));
-    assertTrue(system.contains("plans"));
-    assertTrue(system.contains("workflows"));
-    assertTrue(system.contains("next steps"));
-    assertTrue(system.contains("handoffs"));
-    // The summary is for the Host's internal use only and must never surface in the visible reply.
-    assertTrue(system.contains("Host-internal only"));
-    assertTrue(system.contains("Host's internal use"));
-    assertTrue(system.contains("never mention the summary"));
+    assertFalse(system.contains("insurance"));
+    assertFalse(system.contains("other agents"));
+    assertFalse(system.contains("Main Bot"));
+    assertFalse(system.contains("next step"));
+    assertFalse(system.contains("handoff"));
+    assertFalse(system.contains("Alex"));
+    assertFalse(system.contains("EBC"));
   }
 
   @Test void keeps_the_step_open_without_presenting_an_empty_summary_when_done_is_false() {

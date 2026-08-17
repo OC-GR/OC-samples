@@ -46,8 +46,9 @@ class EBCBenefitsAdvisorAgentTest {
     assertEquals("已查询到：门诊可直付、余额 3500 MYR、特需需报销，具体以当前计划文件为准。", response.getTextContent());
     assertEquals(List.of(MsgRole.SYSTEM, MsgRole.USER), model.messages.stream().map(Msg::getRole).toList());
     String system = model.messages.getFirst().getTextContent();
-    assertTrue(system.contains("group insurance"));
-    assertTrue(system.contains("group insurance for employees"));
+    assertTrue(system.contains("employee-benefits lookup advisor"));
+    assertTrue(system.contains("company group"));
+    assertTrue(system.contains("insurance plan"));
     assertTrue(system.contains("consented"));
     assertTrue(system.contains("remaining balances"));
     assertTrue(system.contains("strict JSON"));
@@ -61,6 +62,12 @@ class EBCBenefitsAdvisorAgentTest {
     assertTrue(system.contains("required_materials"));
     assertTrue(system.contains("source"));
     assertTrue(system.contains("boundary"));
+    assertFalse(system.contains("benefit journey"));
+    assertFalse(system.contains("AQ Health Assistant"));
+    assertFalse(system.contains("Alex Coverage Advisor"));
+    assertFalse(system.contains("Main Bot"));
+    assertFalse(system.contains("next step"));
+    assertFalse(system.contains("handoff"));
   }
 
   @Test void keeps_the_step_open_without_presenting_an_empty_summary_when_done_is_false() {
