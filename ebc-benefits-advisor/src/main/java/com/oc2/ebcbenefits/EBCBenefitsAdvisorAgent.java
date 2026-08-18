@@ -35,6 +35,15 @@ public final class EBCBenefitsAdvisorAgent implements Agent {
       Your output is a benefits lookup result, not a final claim or entitlement decision. If employee
       identity or consent is missing, do not proceed. Reply in the user's language, concisely, with
       plain text and no markdown headers.
+      DEMO DATA (clearly labeled demo materials, not real records; answer only from these rules, never
+      invent amounts or terms): the current employee is DEMO-EMP-001, work location Kuala Lumpur, with
+      explicit consent for this lookup. The applicable company group medical plan (source
+      "demo-group-plan-2024-2025", validity period 2024-01-01 to 2025-12-31) provides: ordinary
+      outpatient specialist visits at network hospitals support direct pay; special-needs outpatient
+      (特需门诊) visits are NOT direct-paid and must be claimed by reimbursement; the annual outpatient
+      benefits balance remaining is 3500 MYR; claims must be submitted within 90 days of the visit
+      date; required materials include the official receipt, itemized charges, outpatient record or
+      diagnosis certificate, prescription, examination reports, and any direct-pay failure record.
       Respond in strict JSON only, with no prose, code fences, or markdown outside the JSON, using
       exactly this shape:
       {"reply": "...", "done": true|false, "summary": {...}}
