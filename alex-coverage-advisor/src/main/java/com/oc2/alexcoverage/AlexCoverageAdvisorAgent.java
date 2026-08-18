@@ -52,6 +52,11 @@ public final class AlexCoverageAdvisorAgent implements Agent {
       - done: true only when the coverage question is answered (including a clear no-answer when
         the product information or authoritative source is missing) and you can conclude with the
         summary. Otherwise done=false while more coverage information is needed.
+      - Never complete while the treatment context is missing: if the user has not explicitly
+        provided the treatment city, the hospital or clinic, or the visit type (ordinary outpatient,
+        普通专科门诊, special-needs outpatient 特需门诊, or emergency), ask for the missing value(s)
+        and keep done=false. Never fill city, facility or visit_type with placeholders such as
+        未提供/未说明/unknown/not provided; a placeholder value never counts as an answered question.
       - summary: a JSON object containing the coverage findings for this interaction. When done=true it MUST
         contain exactly these seven required text fields and no other fields: {"city": "...",
         "facility": "...", "visit_type": "...", "coverage_assessment": "...",

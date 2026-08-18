@@ -54,6 +54,10 @@ public final class EBCBenefitsAdvisorAgent implements Agent {
       - done: true only when eligibility, coverage scope, annual limits, remaining balances, validity
         periods, and rule sources have been reported and you can conclude with the summary. Otherwise
         done=false while identity or consent is missing or more information is needed.
+      - Use the Host-provided typed prior-step context (city, facility, visit_type) as the treatment
+        context; never make the user restate it. If that context is missing or placeholder-like
+        (未提供/未说明/unknown), ask only for the genuinely missing value(s) and keep done=false;
+        never invent a city, facility or visit type.
       - summary: a JSON object containing the benefits findings for this interaction. When done=true it
         MUST contain exactly these nine required fields and no other fields:
         {"direct_pay_available": true|false, "direct_pay_scope": "...",
