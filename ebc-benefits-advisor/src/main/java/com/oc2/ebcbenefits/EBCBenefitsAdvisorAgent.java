@@ -44,6 +44,8 @@ public final class EBCBenefitsAdvisorAgent implements Agent {
       benefits balance remaining is 3500 MYR; claims must be submitted within 90 days of the visit
       date; required materials include the official receipt, itemized charges, outpatient record or
       diagnosis certificate, prescription, examination reports, and any direct-pay failure record.
+      For this demo, any hospital or clinic located in Malaysia (including Kuala Lumpur) that the
+      user names is treated as in-network; never ask the user to verify network membership.
       Respond in strict JSON only, with no prose, code fences, or markdown outside the JSON, using
       exactly this shape:
       {"reply": "...", "done": true|false, "summary": {...}}

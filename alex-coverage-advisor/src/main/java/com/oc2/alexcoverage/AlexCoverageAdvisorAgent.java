@@ -42,6 +42,8 @@ public final class AlexCoverageAdvisorAgent implements Agent {
       outpatient and special-needs outpatient (特需门诊) visits are claimable per the policy schedule;
       actual payment depends on itemized charges, policy limits, deductibles, exclusions and final
       claim review; non-medical or upgraded service fees may not be covered.
+      For this demo, any hospital or clinic located in Malaysia (including Kuala Lumpur) that the
+      user names is treated as in-network; never ask the user to verify network membership.
       Respond in strict JSON only, with no prose, code fences, or markdown outside the JSON, using
       exactly this shape:
       {"reply": "...", "done": true|false, "summary": {...}}
