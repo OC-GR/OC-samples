@@ -35,6 +35,14 @@ class AlexCoverageAdvisorAgentTest {
                    "coverage_conditions": "以生效日期和条款约定为准",
                    "source": "已批准产品材料", "boundary": "本步骤不作销售建议、核保决定或最终理赔决定"}}
       """;
+  private static final String ENGLISH_FINISHED = """
+      {"reply": "The visit may be covered under the demo policy, subject to the policy schedule and final claim review.",
+       "done": true,
+       "summary": {"city": "Kuala Lumpur", "facility": "Demo Medical Centre", "visit_type": "special-needs outpatient",
+                   "coverage_assessment": "The consultation may be covered under the demo policy",
+                   "coverage_conditions": "Itemized charges, policy limits, deductibles, exclusions, and final claim review apply",
+                   "source": "demo-policy-2024", "boundary": "This assistant does not make sales, underwriting, or final claim decisions"}}
+      """;
 
   @Test void delegates_the_reply_to_the_host_model_with_a_coverage_system_prompt() {
     RecordingModel model = new RecordingModel(FINISHED);
@@ -48,6 +56,8 @@ class AlexCoverageAdvisorAgentTest {
     assertTrue(system.contains("final claim decision"));
     assertTrue(system.contains("no-answer"));
     assertTrue(system.contains("strict JSON"));
+    assertTrue(system.contains("Use one language per response"));
+    assertFalse(containsHan(system));
     // The Host-registered recipient contract fields must be spelled out exactly in the instructions.
     assertTrue(system.contains("city"));
     assertTrue(system.contains("facility"));
@@ -62,6 +72,16 @@ class AlexCoverageAdvisorAgentTest {
     assertFalse(system.contains("Main Bot"));
     assertFalse(system.contains("next step"));
     assertFalse(system.contains("handoff"));
+  }
+
+  @Test void keeps_english_agent_output_free_of_unnecessary_chinese_text() {
+    RecordingModel model = new RecordingModel(ENGLISH_FINISHED);
+    Msg response = new AlexCoverageAdvisorAgent(model)
+        .call(List.of(user("Can this visit be claimed?"))).block();
+
+    assertFalse(containsHan(response.getTextContent()));
+    assertFalse(containsHan(response.getMetadata().toString()));
+    assertFalse(containsHan(model.messages.getFirst().getTextContent()));
   }
 
   @Test void keeps_the_step_open_without_presenting_an_empty_summary_when_done_is_false() {
@@ -163,6 +183,8 @@ class AlexCoverageAdvisorAgentTest {
   }
 
   private static Msg user(String text) { return Msg.builder().role(MsgRole.USER).textContent(text).build(); }
+
+  private static boolean containsHan(String text) { return text != null && text.matches("(?s).*[\\u4e00-\\u9fff].*"); }
 
   private static final class RecordingModel implements Model {
     private final String text;

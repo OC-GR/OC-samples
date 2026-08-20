@@ -38,6 +38,17 @@ class EBCBenefitsAdvisorAgentTest {
                    "source": "当前员工福利计划文件",
                    "boundary": "本步骤不作最终理赔或权益决定"}}
       """;
+  private static final String ENGLISH_FINISHED = """
+      {"reply": "The visit is eligible for direct pay under the demo group plan, with a remaining balance of 3500 MYR.",
+       "done": true,
+       "summary": {"direct_pay_available": true, "direct_pay_scope": "Ordinary outpatient specialist visits at network hospitals",
+                   "reimbursement_required_for": "Special-needs outpatient visits and self-funded items",
+                   "remaining_balance": 3500, "currency": "MYR",
+                   "submission_deadline_days": 90,
+                   "required_materials": ["official receipt", "itemized charges", "prescription"],
+                   "source": "demo-group-plan-2024-2025",
+                   "boundary": "This assistant does not make a final claim or entitlement decision"}}
+      """;
 
   @Test void delegates_the_reply_to_the_host_model_with_a_benefits_system_prompt() {
     RecordingModel model = new RecordingModel(FINISHED);
@@ -52,6 +63,8 @@ class EBCBenefitsAdvisorAgentTest {
     assertTrue(system.contains("consented"));
     assertTrue(system.contains("remaining balances"));
     assertTrue(system.contains("strict JSON"));
+    assertTrue(system.contains("Use one language per response"));
+    assertFalse(containsHan(system));
     // The Host-registered recipient contract fields must be spelled out exactly in the instructions.
     assertTrue(system.contains("direct_pay_available"));
     assertTrue(system.contains("direct_pay_scope"));
@@ -68,6 +81,16 @@ class EBCBenefitsAdvisorAgentTest {
     assertFalse(system.contains("Main Bot"));
     assertFalse(system.contains("next step"));
     assertFalse(system.contains("handoff"));
+  }
+
+  @Test void keeps_english_agent_output_free_of_unnecessary_chinese_text() {
+    RecordingModel model = new RecordingModel(ENGLISH_FINISHED);
+    Msg response = new EBCBenefitsAdvisorAgent(model)
+        .call(List.of(user("What benefits apply to this visit?"))).block();
+
+    assertFalse(containsHan(response.getTextContent()));
+    assertFalse(containsHan(response.getMetadata().toString()));
+    assertFalse(containsHan(model.messages.getFirst().getTextContent()));
   }
 
   @Test void keeps_the_step_open_without_presenting_an_empty_summary_when_done_is_false() {
@@ -191,6 +214,8 @@ class EBCBenefitsAdvisorAgentTest {
   }
 
   private static Msg user(String text) { return Msg.builder().role(MsgRole.USER).textContent(text).build(); }
+
+  private static boolean containsHan(String text) { return text != null && text.matches("(?s).*[\\u4e00-\\u9fff].*"); }
 
   private static final class RecordingModel implements Model {
     private final String text;
