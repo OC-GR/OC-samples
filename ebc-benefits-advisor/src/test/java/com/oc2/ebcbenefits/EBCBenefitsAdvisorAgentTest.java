@@ -63,7 +63,9 @@ class EBCBenefitsAdvisorAgentTest {
     assertTrue(system.contains("consented"));
     assertTrue(system.contains("remaining balances"));
     assertTrue(system.contains("strict JSON"));
-    assertTrue(system.contains("Use one language per response"));
+    assertTrue(system.contains("Reply in English by default"));
+    assertTrue(system.contains("explicitly"));
+    assertTrue(system.contains("requests that language"));
     assertFalse(containsHan(system));
     // The Host-registered recipient contract fields must be spelled out exactly in the instructions.
     assertTrue(system.contains("direct_pay_available"));
